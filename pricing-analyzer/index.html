@@ -1,0 +1,172 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Menu Price Analyzer</title>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.4.168/pdf.min.mjs" type="module"></script>
+  <style>
+    :root{--bg:#0b0b0d;--card:#151518;--muted:#9a9aa3;--text:#f7f7f8;--line:#28282e;--accent:#ff5a5f;--good:#35c77b;--warn:#f4b942;--bad:#ff6b6b}
+    *{box-sizing:border-box} body{margin:0;background:linear-gradient(180deg,#0b0b0d,#101014);color:var(--text);font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+    .wrap{max-width:1280px;margin:auto;padding:28px}.top{display:flex;justify-content:space-between;gap:20px;align-items:flex-end;margin-bottom:22px}.brand h1{margin:0;font-size:28px}.brand p{margin:7px 0 0;color:var(--muted)}
+    .pill{border:1px solid var(--line);background:#111114;border-radius:999px;padding:8px 12px;color:#d6d6da;font-size:12px}
+    .grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}.card{background:rgba(21,21,24,.96);border:1px solid var(--line);border-radius:18px;padding:18px;box-shadow:0 16px 50px rgba(0,0,0,.18)}
+    .card h2{font-size:16px;margin:0 0 14px}.drop{border:1.5px dashed #414149;border-radius:16px;padding:28px;text-align:center;cursor:pointer;background:#111114;transition:.2s}.drop:hover{border-color:#6c6c75}.drop strong{display:block;font-size:16px}.drop small{display:block;margin-top:7px;color:var(--muted)}
+    input[type=file]{display:none}.settings{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}.field label{display:block;color:var(--muted);font-size:12px;margin:0 0 6px}.field input,.field select{width:100%;border:1px solid var(--line);background:#101013;color:var(--text);padding:10px 11px;border-radius:10px;outline:none}
+    .actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:14px}.btn{border:0;border-radius:11px;padding:11px 15px;font-weight:700;cursor:pointer}.primary{background:var(--accent);color:white}.secondary{background:#232329;color:white;border:1px solid #34343b}.btn:disabled{opacity:.45;cursor:not-allowed}
+    .status{margin-top:12px;color:var(--muted);font-size:13px;min-height:20px}.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin:16px 0}.stat{background:#111114;border:1px solid var(--line);border-radius:14px;padding:14px}.stat span{color:var(--muted);font-size:11px}.stat b{display:block;font-size:20px;margin-top:4px}
+    .full{grid-column:1/-1}.table-wrap{overflow:auto;border:1px solid var(--line);border-radius:14px;max-height:520px}table{width:100%;border-collapse:collapse;min-width:1050px;font-size:12px}th,td{padding:10px;border-bottom:1px solid #242429;text-align:left;white-space:nowrap}th{position:sticky;top:0;background:#18181d;z-index:2;color:#cfcfd5}td input{width:90px;background:#101013;color:white;border:1px solid #303038;border-radius:8px;padding:7px}.tag{padding:4px 8px;border-radius:999px;font-size:11px;font-weight:700}.good{background:rgba(53,199,123,.13);color:#7fe1ad}.warn{background:rgba(244,185,66,.13);color:#ffd575}.bad{background:rgba(255,107,107,.13);color:#ff9a9a}
+    .note{color:var(--muted);font-size:12px;line-height:1.5}.hidden{display:none}.mapping{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:12px}.mapping select{width:100%;background:#101013;color:white;border:1px solid var(--line);border-radius:10px;padding:9px}
+    @media(max-width:900px){.grid,.settings,.mapping{grid-template-columns:1fr}.stats{grid-template-columns:1fr 1fr}.top{align-items:flex-start;flex-direction:column}.wrap{padding:16px}}
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <div class="top"><div class="brand"><h1>Menu Price Analyzer</h1><p>Dine-in menu upload → Zomato-ready pricing analysis → export.</p></div><div class="pill">MVP • CSV / Excel / PDF / Image</div></div>
+  <div class="grid">
+    <section class="card">
+      <h2>1. Upload menu</h2>
+      <label class="drop" for="fileInput"><strong>Choose menu file</strong><small>CSV, XLSX, XLS, PDF, PNG, JPG or JPEG</small></label>
+      <input id="fileInput" type="file" accept=".csv,.xlsx,.xls,.pdf,.png,.jpg,.jpeg" />
+      <div id="fileStatus" class="status">No file selected.</div>
+      <div id="mappingBox" class="hidden">
+        <div class="mapping">
+          <div><label class="note">Item column</label><select id="itemCol"></select></div>
+          <div><label class="note">Price column</label><select id="priceCol"></select></div>
+          <div><label class="note">Category column</label><select id="categoryCol"></select></div>
+          <div><label class="note">Variant column</label><select id="variantCol"></select></div>
+        </div>
+        <div class="actions"><button class="btn secondary" id="applyMapping">Apply mapping</button></div>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>2. Commercial assumptions</h2>
+      <div class="settings">
+        <div class="field"><label>Commission %</label><input id="commission" type="number" value="25" step="0.1"></div>
+        <div class="field"><label>PG %</label><input id="pg" type="number" value="1.8" step="0.1"></div>
+        <div class="field"><label>GST on commission %</label><input id="gst" type="number" value="18" step="0.1"></div>
+        <div class="field"><label>Discount %</label><input id="discount" type="number" value="10" step="0.1"></div>
+        <div class="field"><label>Ads / CV %</label><input id="ads" type="number" value="8" step="0.1"></div>
+        <div class="field"><label>Growmax / Promo %</label><input id="promo" type="number" value="5" step="0.1"></div>
+        <div class="field"><label>Target payout %</label><input id="targetPayout" type="number" value="58" step="0.1"></div>
+        <div class="field"><label>Pricing mode</label><select id="mode"><option value="safe">Safe</option><option value="balanced" selected>Balanced</option><option value="aggressive">Aggressive</option></select></div>
+        <div class="field"><label>Preferred ending</label><select id="ending"><option value="9">₹9</option><option value="5">₹5</option><option value="0">₹0</option></select></div>
+      </div>
+      <div class="actions"><button class="btn primary" id="analyzeBtn" disabled>Analyze pricing</button><button class="btn secondary" id="resetBtn">Reset</button></div>
+      <div class="note" style="margin-top:10px">The engine uses commercial costs plus category-aware uplift caps. Final pricing should still be reviewed before publishing.</div>
+    </section>
+
+    <section class="card full hidden" id="resultsCard">
+      <h2>3. Pricing analysis</h2>
+      <div class="stats"><div class="stat"><span>Items</span><b id="sItems">0</b></div><div class="stat"><span>Avg. uplift</span><b id="sUplift">0%</b></div><div class="stat"><span>Avg. payout</span><b id="sPayout">0%</b></div><div class="stat"><span>Needs review</span><b id="sReview">0</b></div></div>
+      <div class="table-wrap"><table><thead><tr><th>Item</th><th>Category</th><th>Variant</th><th>Dine-in</th><th>Recommended</th><th>Uplift</th><th>Est. payout</th><th>Status</th><th>Why</th></tr></thead><tbody id="tbody"></tbody></table></div>
+      <div class="actions"><button class="btn primary" id="exportBtn">Export analyzed file</button><button class="btn secondary" id="copyBtn">Copy summary</button></div>
+      <div class="note" style="margin-top:10px">Spreadsheet uploads export back to the same spreadsheet type where possible. PDF/image menus export as XLSX because preserving original visual menu layout is not reliable in-browser.</div>
+    </section>
+  </div>
+</div>
+
+<script type="module">
+  const $=id=>document.getElementById(id);
+  let rawRows=[], normalized=[], analyzed=[], originalExt='xlsx', originalHeaders=[];
+  const cleanNum=v=>{ if(typeof v==='number') return v; const m=String(v??'').replace(/,/g,'').match(/-?\d+(?:\.\d+)?/); return m?Number(m[0]):NaN };
+  const lower=v=>String(v??'').trim().toLowerCase();
+  const pct=id=>Number($(id).value||0)/100;
+
+  function inferColumn(headers, terms){ return headers.find(h=>terms.some(t=>lower(h).includes(t))) || '' }
+  function fillSelect(sel, headers, allowBlank=true){ sel.innerHTML=''; if(allowBlank){ const o=document.createElement('option');o.value='';o.textContent='— None —';sel.appendChild(o)} headers.forEach(h=>{const o=document.createElement('option');o.value=h;o.textContent=h;sel.appendChild(o)}) }
+  function showMapping(){
+    const headers=originalHeaders;
+    ['itemCol','priceCol','categoryCol','variantCol'].forEach(id=>fillSelect($(id),headers,id!=='itemCol'&&id!=='priceCol'));
+    $('itemCol').value=inferColumn(headers,['item','dish','product','name','menu']);
+    $('priceCol').value=inferColumn(headers,['price','amount','rate','mrp','dine']);
+    $('categoryCol').value=inferColumn(headers,['category','section','group']);
+    $('variantCol').value=inferColumn(headers,['variant','size','portion','type']);
+    $('mappingBox').classList.remove('hidden');
+  }
+  function buildNormalized(){
+    const ic=$('itemCol').value, pc=$('priceCol').value, cc=$('categoryCol').value, vc=$('variantCol').value;
+    normalized=rawRows.map((r,i)=>({idx:i,item:String(r[ic]??'').trim(),price:cleanNum(r[pc]),category:cc?String(r[cc]??'').trim():'',variant:vc?String(r[vc]??'').trim():'',source:r})).filter(r=>r.item&&Number.isFinite(r.price)&&r.price>0);
+    $('analyzeBtn').disabled=!normalized.length;
+    $('fileStatus').textContent=`${normalized.length} priced items detected.`;
+  }
+
+  function categoryClass(item,category){
+    const s=lower(item+' '+category);
+    if(/naan|roti|chapati|tandoori roti|water|soda|papad|extra|dip|chutney/.test(s)) return 'dry';
+    if(/biryani|thali|combo|platter|meal/.test(s)) return 'hero';
+    if(/paneer|chicken|mutton|fish|curry|masala|kadhai|gravy/.test(s)) return 'main';
+    if(/shake|coffee|tea|lassi|juice|beverage|mojito/.test(s)) return 'bev';
+    return 'normal';
+  }
+  function roundEnding(n,ending){
+    n=Math.max(1,Math.round(n)); const tens=Math.floor(n/10)*10; const e=Number(ending);
+    const opts=[tens+e,tens+10+e].filter(x=>x>=n-3); return opts.sort((a,b)=>Math.abs(a-n)-Math.abs(b-n))[0]||n;
+  }
+  function payoutRatio(price){
+    const c=pct('commission'), pg=pct('pg'), gst=pct('gst'), d=pct('discount'), ads=pct('ads'), promo=pct('promo');
+    const deductions = price*d + price*c + (price*c)*gst + price*pg + price*ads + price*promo;
+    return Math.max(0,(price-deductions)/price);
+  }
+  function requiredUplift(cls){
+    const target=pct('targetPayout'); const current=payoutRatio(100); let base=Math.max(0,(target-current)*1.75);
+    const mode=$('mode').value; base += mode==='safe'?0.02:mode==='aggressive'?0.09:0.055;
+    const caps={dry:[.10,.28],bev:[.15,.35],normal:[.18,.40],main:[.22,.45],hero:[.20,.42]}; const [min,max]=caps[cls]||caps.normal;
+    return Math.min(max,Math.max(min,base));
+  }
+  function explain(cls,uplift,payout){
+    const target=Number($('targetPayout').value||0);
+    if(cls==='dry'&&uplift>=.25) return 'Dry/low-ticket item: uplift capped to avoid looking overpriced.';
+    if(payout*100<target-3) return 'Commercial load is high; review discount/ads/promo or raise price selectively.';
+    if(cls==='hero') return 'High-visibility item: balanced uplift to protect conversion and payout.';
+    return 'Price balances menu uplift with current commercial assumptions.';
+  }
+  function analyze(){
+    analyzed=normalized.map(r=>{
+      const cls=categoryClass(r.item,r.category); const u=requiredUplift(cls); const rec=roundEnding(r.price*(1+u),$('ending').value); const actualU=(rec/r.price)-1; const pay=payoutRatio(rec); const target=pct('targetPayout');
+      let status='Safe',tone='good'; if(actualU>.42||pay<target-.05){status='Review';tone='bad'} else if(actualU>.34||pay<target-.02){status='Watch';tone='warn'}
+      return {...r,cls,recommended:rec,uplift:actualU,payout:pay,status,tone,why:explain(cls,actualU,pay)};
+    }); render();
+  }
+  function render(){
+    $('resultsCard').classList.remove('hidden'); $('tbody').innerHTML='';
+    analyzed.forEach((r,i)=>{const tr=document.createElement('tr');tr.innerHTML=`<td>${escapeHtml(r.item)}</td><td>${escapeHtml(r.category||'—')}</td><td>${escapeHtml(r.variant||'—')}</td><td>₹${r.price.toFixed(0)}</td><td><input data-i="${i}" value="${r.recommended}"></td><td>${(r.uplift*100).toFixed(1)}%</td><td>${(r.payout*100).toFixed(1)}%</td><td><span class="tag ${r.tone}">${r.status}</span></td><td>${escapeHtml(r.why)}</td>`;$('tbody').appendChild(tr)});
+    document.querySelectorAll('tbody input').forEach(inp=>inp.addEventListener('change',e=>{const i=Number(e.target.dataset.i),v=cleanNum(e.target.value);if(v>0){analyzed[i].recommended=v;analyzed[i].uplift=v/analyzed[i].price-1;render()}}));
+    $('sItems').textContent=analyzed.length; const avgU=analyzed.reduce((a,r)=>a+r.uplift,0)/(analyzed.length||1); const avgP=analyzed.reduce((a,r)=>a+r.payout,0)/(analyzed.length||1); $('sUplift').textContent=(avgU*100).toFixed(1)+'%'; $('sPayout').textContent=(avgP*100).toFixed(1)+'%'; $('sReview').textContent=analyzed.filter(r=>r.status!=='Safe').length;
+  }
+  function escapeHtml(s){return String(s).replace(/[&<>'"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]))}
+
+  async function parseSpreadsheet(file){
+    const ab=await file.arrayBuffer(); const wb=XLSX.read(ab,{type:'array'}); const ws=wb.Sheets[wb.SheetNames[0]]; rawRows=XLSX.utils.sheet_to_json(ws,{defval:''}); originalHeaders=rawRows.length?Object.keys(rawRows[0]):[]; showMapping(); buildNormalized();
+  }
+  function rowsFromOCR(text){
+    const rows=[]; for(const line of text.split(/\n+/)){ const cleaned=line.replace(/\s+/g,' ').trim(); if(!cleaned) continue; const m=cleaned.match(/^(.*?)(?:₹|Rs\.?|INR)?\s*(\d{2,5}(?:\.\d{1,2})?)\s*$/i); if(m&&m[1].trim().length>1) rows.push({Item:m[1].replace(/[.·•_-]+$/,'').trim(),Price:Number(m[2])}); }
+    return rows;
+  }
+  async function parseImage(file){
+    $('fileStatus').textContent='Reading image menu…'; const {data:{text}}=await Tesseract.recognize(file,'eng',{logger:m=>{if(m.status==='recognizing text')$('fileStatus').textContent=`OCR ${(m.progress*100).toFixed(0)}%`}}); rawRows=rowsFromOCR(text); originalHeaders=['Item','Price']; showMapping(); $('itemCol').value='Item';$('priceCol').value='Price';buildNormalized();
+  }
+  async function parsePDF(file){
+    $('fileStatus').textContent='Reading PDF menu…'; const pdfjsLib=await import('https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.4.168/pdf.min.mjs'); pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.4.168/pdf.worker.min.mjs'; const pdf=await pdfjsLib.getDocument({data:await file.arrayBuffer()}).promise; let text='';
+    for(let p=1;p<=pdf.numPages;p++){ const page=await pdf.getPage(p); const tc=await page.getTextContent(); const direct=tc.items.map(x=>x.str).join(' '); if(direct.replace(/\s/g,'').length>30){text+='\n'+direct}else{ const vp=page.getViewport({scale:1.8}); const c=document.createElement('canvas');c.width=vp.width;c.height=vp.height;await page.render({canvasContext:c.getContext('2d'),viewport:vp}).promise; const {data:{text:t}}=await Tesseract.recognize(c,'eng');text+='\n'+t } $('fileStatus').textContent=`Reading PDF page ${p}/${pdf.numPages}`; }
+    rawRows=rowsFromOCR(text); originalHeaders=['Item','Price']; showMapping(); $('itemCol').value='Item';$('priceCol').value='Price';buildNormalized();
+  }
+
+  async function onFile(file){
+    if(!file)return; originalExt=(file.name.split('.').pop()||'xlsx').toLowerCase(); $('fileStatus').textContent=`Loading ${file.name}…`; try{ if(['xlsx','xls','csv'].includes(originalExt)) await parseSpreadsheet(file); else if(originalExt==='pdf') await parsePDF(file); else await parseImage(file); }catch(e){console.error(e);$('fileStatus').textContent='Could not parse this file. Try a clearer file or spreadsheet version.'}
+  }
+  function exportData(){
+    const out=analyzed.map(r=>({...r.source,'Recommended Zomato Price':r.recommended,'Price Uplift %':Number((r.uplift*100).toFixed(1)),'Estimated Payout %':Number((r.payout*100).toFixed(1)),'Pricing Status':r.status,'Pricing Note':r.why}));
+    const ws=XLSX.utils.json_to_sheet(out); const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,ws,'Price Analysis'); if(originalExt==='csv'){XLSX.writeFile(wb,'menu_price_analysis.csv',{bookType:'csv'})}else{XLSX.writeFile(wb,'menu_price_analysis.xlsx')}
+  }
+  async function copySummary(){const txt=`Menu Price Analysis\nItems: ${analyzed.length}\nAvg uplift: ${$('sUplift').textContent}\nAvg payout: ${$('sPayout').textContent}\nNeeds review: ${$('sReview').textContent}`;await navigator.clipboard.writeText(txt);$('copyBtn').textContent='Copied';setTimeout(()=>$('copyBtn').textContent='Copy summary',1200)}
+  function reset(){rawRows=[];normalized=[];analyzed=[];$('fileInput').value='';$('fileStatus').textContent='No file selected.';$('mappingBox').classList.add('hidden');$('resultsCard').classList.add('hidden');$('analyzeBtn').disabled=true}
+
+  $('fileInput').addEventListener('change',e=>onFile(e.target.files[0]));
+  $('applyMapping').addEventListener('click',buildNormalized); $('analyzeBtn').addEventListener('click',analyze); $('exportBtn').addEventListener('click',exportData); $('copyBtn').addEventListener('click',copySummary); $('resetBtn').addEventListener('click',reset);
+</script>
+</body>
+</html>
